@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>Process Visualizer by Asim</title>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        #process-diagram {
+    border: 1px solid #ccc;
+    width: 100%;
+    height: 600px; /* Initial height, can be adjusted */
+    overflow: auto;
+    position: relative;
+}
+
+        .swim-lane { fill: #e6f3ff; stroke: #999; stroke-width: 1; }
+        .process-step { fill: #add8e6; stroke: #4682b4; stroke-width: 2; }
+        .step-text { font-size: 11px; font-weight: bold; text-anchor: middle; }
+        .lane-text { font-size: 12px; font-weight: bold; fill: white; text-anchor: middle; }
+        table { border-collapse: collapse; width: 100%; }
+        th, td { border: 1px solid #ddd; padding: 8px; text-align: left; }
+        th { background-color: #f2f2f2; }
+        input[type="text"], input[type="number"] { width: 100%; padding: 4px; box-sizing: border-box; }
+        button { padding: 5px 10px; margin: 2px; cursor: pointer; }
+        .workflow-name-section { background-color: #f8f9fa; padding: 15px; border: 1px solid #dee2e6; border-radius: 5px; margin-bottom: 20px; }
+        .workflow-name-input { font-size: 16px; font-weight: bold; padding: 8px; width: 100%; max-width: 500px; border: 2px solid #4682b4; border-radius: 5px; }
+    </style>
+</head>
+<body>
+    <div id="status" style="background-color: #d4edda; padding: 10px; margin-bottom: 10px; border-radius: 5px;">
+        <strong>Status:</strong> <span id="status-text">Loading...</span>
+    </div>
+    
+    <h1>Process Flow Visualizer by Asim</h1>
+    
+    <div class="workflow-name-section">
+        <label for="workflow-name"><strong>Workflow Name:</strong></label><br>
+        <input type="text" id="workflow-name" class="workflow-name-input" 
+               placeholder="Enter workflow name (e.g., Customer Onboarding Process)" 
+               value="My Process Workflow">
+    </div>
+    
+    <div>
+        <label for="excel-file">Upload Excel File:</label>
+        <input type="file" id="excel-file" accept=".xlsx,.xls">
+    </div>
+    
+    <div id="manual-entry" style="margin: 20px 0;">
+        <h3>Or Enter Data Manually:</h3>
+        <table id="data-table">
+            <thead>
+                <tr>
+                    <th>Order</th>
+                    <th>Swim Lane</th>
+                    <th>Step Name</th>
+                    <th>Description</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody id="table-body">
+                <tr>
+                    <td><input type="number" value="1"></td>
+                    <td><input type="text" value="Sales"></td>
+                    <td><input type="text" value="Lead Generation"></td>
+                    <td><input type="text" value="Generate new leads"></td>
+                    <td><button type="button" onclick="removeRow(this)">Remove</button></td>
+                </tr>
+                <tr>
+                    <td><input type="number" value="2"></td>
+                    <td><input type="text" value="Marketing"></td>
+                    <td><input type="text" value="Qualification"></td>
+                    <td><input type="text" value="Qualify leads"></td>
+                    <td><button type="button" onclick="removeRow(this)">Remove</button></td>
+                </tr>
+            </tbody>
+        </table>
+        <button type="button" onclick="addRow()">Add Row</button>
+        <button type="button" onclick="generateFromTable()">Generate Diagram</button>
+        <button type="button" onclick="clearTable()">Clear All</button>
+        <button type="button" onclick="downloadAsExcel()" style="background-color: #28a745; color: white;">📥 Download as Excel</button>
+        <button type="button" onclick="downloadAsPDF()" style="background-color: #dc3545; color: white;">📄 Download as PDF</button>
+    </div>
+    
+    <div id="process-diagram"></div>
+    
+    <script>
+    (function() {
+        // Global variables
+        let currentWorkflowName = 'My Process Workflow';
+        let visualizer;
+        
+        // Initialize on page load
+        document.addEventListener('DOMContentLoaded', function() {
+            const statusText = document.getElementById('status-text');
+            
+            if (typeof d3 === 'undefined') {
+                statusText.textContent = 'Error: D3.js library not loaded';
+                statusText.parentElement.style.backgroundColor = '#f8d7da';
+                return;
+            }
+            
+            if (typeof XLSX === 'undefined') {
+                statusText.textContent = 'Error: XLSX library not loaded';
+                statusText.parentElement.style.backgroundColor = '#f8d7da';
+                return;
+            }
+            
+            statusText.textContent = 'Ready - All libraries loaded successfully';
+            
+            try {
+                // Initialize visualizer
+                visualizer = new ProcessVisualizer('process-diagram');
+                generateFromTable();
+                
+                // Add event listener for workflow name changes
+                document.getElementById('workflow-name').addEventListener('input', function() {
+                    currentWorkflowName = this.value || 'Untitled Workflow';
+                    if (visualizer && visualizer.svg && !visualizer.svg.selectAll('*').empty()) {
+                        generateFromTable();
+                    }
+                });
+                
+                // Add event listener for file uploads
+                document.getElementById('excel-file').addEventListener('change', handleFileUpload);
+                
+            } catch (error) {
+                statusText.textContent = 'Error: ' + error.message;
+                statusText.parentElement.style.backgroundColor = '#f8d7da';
+            }
+        });
+        
+ 
+// Process Visualizer Class with all methods properly defined
+class ProcessVisualizer {
+constructor(containerId) {
+    this.container = d3.select('#' + containerId);
+    this.svg = this.container.append('svg')
+        .attr('width', '100%')
+        .attr('height', '500px') // Initial height, will be adjusted dynamically
+        .attr('viewBox', '0 0 1200 500');
+    
+    this.config = {
+        shapeHeight: 60,
+        shapeWidth: 180,
+        swimLaneHeight: 120,
+        startCol: 200,
+        startRow: 80,
+        laneHeaderWidth: 140
+        };
+    }
+    
+    
+
+createDiagram(data) {
+    this.svg.selectAll('*').remove();
+    
+    if (!data || data.length === 0) {
+        this.svg.append('text')
+            .attr('x', 600)
+            .attr('y', 300)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '16px')
+            .style('fill', '#666')
+            .text('No data to display. Please add some process steps.');
+        return;
+    }
+    
+    const processedData = this.processData(data);
+    const uniqueLanes = this.getUniqueLanes(processedData);
+    
+    // Calculate required width based on number of steps
+    const stepsCount = processedData.length;
+    const requiredWidth = this.config.startCol + stepsCount * (this.config.shapeWidth + 40) + 60;
+    const viewBoxWidth = Math.max(1200, requiredWidth);
+    
+    // Calculate required height based on number of swimlanes
+    const laneCount = uniqueLanes.length;
+    const requiredHeight = this.config.startRow + laneCount * this.config.swimLaneHeight + 60;
+    const viewBoxHeight = Math.max(500, requiredHeight);
+    
+    // Update SVG viewBox and height to accommodate all steps and swimlanes
+    this.svg.attr('viewBox', '0 0 ' + viewBoxWidth + ' ' + viewBoxHeight);
+    this.svg.attr('height', viewBoxHeight + 'px'); // Dynamically adjust the SVG height
+    this.svg.attr('width', '100%'); // Ensure width remains responsive
+    
+    this.createSwimLanes(uniqueLanes, requiredWidth);
+    this.createProcessSteps(processedData, uniqueLanes);
+    this.createConnectors(processedData, uniqueLanes);
+    this.addTitle();
+}
+
+
+    
+    processData(rawData) {
+        return rawData
+            .filter(item => item.order && item.stepName)
+            .sort((a, b) => a.order - b.order)
+            .map(item => ({
+                order: parseInt(item.order),
+                swimLane: String(item.swimLane || 'Default').trim(),
+                stepName: String(item.stepName || '').trim(),
+                description: String(item.description || '').trim()
+            }));
+    }
+    
+    getUniqueLanes(data) {
+        return [...new Set(data.map(item => item.swimLane))];
+    }
+    
+    
+
+
+
+createSwimLanes(lanes, requiredWidth) {
+    const laneGroup = this.svg.append('g').attr('class', 'swim-lanes');
+    
+    // Calculate lane background width based on number of steps
+    const laneWidth = Math.max(1100, requiredWidth - 40);
+    
+    lanes.forEach((lane, index) => {
+        const y = this.config.startRow + index * this.config.swimLaneHeight;
+        
+        // Lane background with dynamic width
+        laneGroup.append('rect')
+            .attr('x', 20)
+            .attr('y', y - 10)
+            .attr('width', laneWidth)
+            .attr('height', this.config.swimLaneHeight)
+            .attr('class', 'swim-lane')
+            .style('fill-opacity', 0.3);
+        
+        // Lane header (remains fixed width)
+        laneGroup.append('rect')
+            .attr('x', 30)
+            .attr('y', y + (this.config.swimLaneHeight - this.config.shapeHeight) / 2)
+            .attr('width', this.config.laneHeaderWidth)
+            .attr('height', this.config.shapeHeight)
+            .attr('rx', 10)
+            .style('fill', '#4682b4')
+            .style('stroke', '#2c5282')
+            .style('stroke-width', 2);
+        
+        // Text wrapping logic for swimlane name
+        const maxLength = 15; // Maximum characters per line for swimlane name
+        const maxLines = 3;   // Maximum number of lines for swimlane name
+        let text = lane;
+        
+        // Split text into words and create wrapped lines
+        const words = text.split(' ');
+        let lines = [];
+        let currentLine = words[0] || '';
+        
+        for (let i = 1; i < words.length; i++) {
+            if (currentLine.length + words[i].length + 1 <= maxLength) {
+                currentLine += " " + words[i];
+            } else {
+                lines.push(currentLine);
+                currentLine = words[i];
+                
+                // Check if we've reached max lines
+                if (lines.length >= maxLines - 1) {
+                    if (i < words.length - 1) {
+                        currentLine += "...";
+                    }
+                    break;
+                }
+            }
+        }
+        lines.push(currentLine);
+        
+        // If text is too long even as a single word, truncate with ellipsis
+        if (lines.length === 1 && lines[0].length > maxLength) {
+            lines[0] = lines[0].substring(0, maxLength - 3) + "...";
+        }
+        
+        // Add each line of text for swimlane name
+        lines.forEach((line, lineIndex) => {
+            const lineCount = lines.length;
+            const lineHeight = 16; // Adjust as needed
+            const yOffset = (lineIndex - (lineCount - 1) / 2) * lineHeight;
+            
+            laneGroup.append('text')
+                .attr('x', 30 + this.config.laneHeaderWidth / 2)
+                .attr('y', y + this.config.swimLaneHeight / 2 + yOffset)
+                .attr('text-anchor', 'middle')
+                .attr('class', 'lane-text')
+                .text(line);
+        });
+    });
+    
+    // Separator line with dynamic height
+    laneGroup.append('line')
+        .attr('x1', 190)
+        .attr('y1', this.config.startRow - 20)
+        .attr('x2', 190)
+        .attr('y2', this.config.startRow + lanes.length * this.config.swimLaneHeight + 10)
+        .style('stroke', '#4682b4')
+        .style('stroke-width', 3);
+}
+
+    
+    
+
+
+
+createProcessSteps(data, lanes) {
+        const stepGroup = this.svg.append('g').attr('class', 'process-steps');
+        
+        data.forEach((step, index) => {
+            const laneIndex = lanes.indexOf(step.swimLane);
+            const x = this.config.startCol + index * (this.config.shapeWidth + 40);
+            const y = this.config.startRow + laneIndex * this.config.swimLaneHeight + 
+                     (this.config.swimLaneHeight - this.config.shapeHeight) / 2;
+            
+            // Process step rectangle
+            stepGroup.append('rect')
+                .attr('x', x)
+                .attr('y', y)
+                .attr('width', this.config.shapeWidth)
+                .attr('height', this.config.shapeHeight)
+                .attr('rx', 10)
+                .attr('class', 'process-step');
+            
+            // Text wrapping logic
+            const maxLength = 20; // Maximum characters per line
+            const maxLines = 3;   // Maximum number of lines
+            let text = step.stepName;
+            
+            // Split text into words and create wrapped lines
+            const words = text.split(' ');
+            let lines = [];
+            let currentLine = words[0] || '';
+            
+            for (let i = 1; i < words.length; i++) {
+                if (currentLine.length + words[i].length + 1 <= maxLength) {
+                    currentLine += " " + words[i];
+                } else {
+                    lines.push(currentLine);
+                    currentLine = words[i];
+                    
+                    // Check if we've reached max lines
+                    if (lines.length >= maxLines - 1) {
+                        if (i < words.length - 1) {
+                            currentLine += "...";
+                        }
+                        break;
+                    }
+                }
+            }
+            lines.push(currentLine);
+            
+            // If text is too long even as a single word, truncate with ellipsis
+            if (lines.length === 1 && lines[0].length > maxLength) {
+                lines[0] = lines[0].substring(0, maxLength - 3) + "...";
+            }
+            
+            // Add each line of text
+            lines.forEach((line, lineIndex) => {
+                const lineCount = lines.length;
+                const lineHeight = 16; // Adjust as needed
+                const yOffset = (lineIndex - (lineCount - 1) / 2) * lineHeight;
+                
+                stepGroup.append('text')
+                    .attr('x', x + this.config.shapeWidth / 2)
+                    .attr('y', y + this.config.shapeHeight / 2 + yOffset)
+                    .attr('text-anchor', 'middle')
+                    .attr('class', 'step-text')
+                    .text(line);
+            });
+            
+            // Step number badge
+            stepGroup.append('circle')
+                .attr('cx', x - 10)
+                .attr('cy', y - 10)
+                .attr('r', 12)
+                .style('fill', '#ff4500')
+                .style('stroke', 'white')
+                .style('stroke-width', 2);
+            
+            stepGroup.append('text')
+                .attr('x', x - 10)
+                .attr('y', y - 10)
+                .attr('text-anchor', 'middle')
+                .attr('dominant-baseline', 'middle')
+                .style('fill', 'white')
+                .style('font-weight', 'bold')
+                .style('font-size', '10px')
+                .text(step.order);
+        });
+    }
+    
+    createConnectors(data, uniqueLanes) {
+        if (data.length < 2) return;
+        
+        const connectorGroup = this.svg.append('g').attr('class', 'connectors');
+        
+        // Add arrow marker definition
+        this.svg.append('defs').append('marker')
+            .attr('id', 'arrowhead')
+            .attr('viewBox', '0 -5 10 10')
+            .attr('refX', 8)
+            .attr('refY', 0)
+            .attr('markerWidth', 6)
+            .attr('markerHeight', 6)
+            .attr('orient', 'auto')
+            .append('path')
+            .attr('d', 'M0,-5L10,0L0,5')
+            .style('fill', '#4682b4');
+        
+        for (let i = 0; i < data.length - 1; i++) {
+            const currentStep = data[i];
+            const nextStep = data[i + 1];
+            
+            // Find lane positions
+            const currentLaneIndex = uniqueLanes.indexOf(currentStep.swimLane);
+            const nextLaneIndex = uniqueLanes.indexOf(nextStep.swimLane);
+            
+            // Calculate positions
+            const currentX = this.config.startCol + i * (this.config.shapeWidth + 40);
+            const currentY = this.config.startRow + currentLaneIndex * this.config.swimLaneHeight + 
+                            (this.config.swimLaneHeight - this.config.shapeHeight) / 2;
+            
+            const nextX = this.config.startCol + (i + 1) * (this.config.shapeWidth + 40);
+            const nextY = this.config.startRow + nextLaneIndex * this.config.swimLaneHeight + 
+                         (this.config.swimLaneHeight - this.config.shapeHeight) / 2;
+            
+            // Connection points
+            const startX = currentX + this.config.shapeWidth;
+            const startY = currentY + this.config.shapeHeight / 2;
+            const endX = nextX;
+            const endY = nextY + this.config.shapeHeight / 2;
+            
+            // Create connector path
+            let pathData;
+            
+            if (currentLaneIndex === nextLaneIndex) {
+                // Same lane - simple horizontal line
+                pathData = "M " + startX + " " + startY + " L " + endX + " " + endY;
+            } else {
+                // Different lanes - right-angle connector
+                const midX = startX + (endX - startX) / 2;
+                pathData = "M " + startX + " " + startY + " L " + midX + " " + startY + 
+                          " L " + midX + " " + endY + " L " + endX + " " + endY;
+            }
+            
+            connectorGroup.append('path')
+                .attr('d', pathData)
+                .style('stroke', '#4682b4')
+                .style('stroke-width', 3)
+                .style('fill', 'none')
+                .attr('marker-end', 'url(#arrowhead)');
+        }
+    }
+    
+    addTitle() {
+        // Use workflow name for title
+        const workflowName = currentWorkflowName || 'Process Flow Diagram';
+        
+        this.svg.append('text')
+            .attr('x', 600)
+            .attr('y', 30)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '18px')
+            .style('font-weight', 'bold')
+            .style('fill', '#2c5282')
+            .text(workflowName);
+        
+        // Add date subtitle
+        this.svg.append('text')
+            .attr('x', 600)
+            .attr('y', 50)
+            .attr('text-anchor', 'middle')
+            .style('font-size', '12px')
+            .style('fill', '#666')
+            .text('Created: ' + new Date().toLocaleDateString());
+    }
+}
+
+
+
+
+
+        
+        // Make functions globally available
+        window.addRow = function() {
+            const tableBody = document.getElementById('table-body');
+            const rowCount = tableBody.rows.length;
+            const newRow = tableBody.insertRow();
+            
+            const cell1 = newRow.insertCell(0);
+            const cell2 = newRow.insertCell(1);
+            const cell3 = newRow.insertCell(2);
+            const cell4 = newRow.insertCell(3);
+            const cell5 = newRow.insertCell(4);
+            
+            cell1.innerHTML = '<input type="number" value="' + (rowCount + 1) + '">';
+            cell2.innerHTML = '<input type="text" placeholder="Enter swim lane">';
+            cell3.innerHTML = '<input type="text" placeholder="Enter step name">';
+            cell4.innerHTML = '<input type="text" placeholder="Enter description">';
+            cell5.innerHTML = '<button type="button" onclick="removeRow(this)">Remove</button>';
+        };
+        
+        window.removeRow = function(button) {
+            const row = button.closest('tr');
+            row.remove();
+            updateRowNumbers();
+        };
+        
+        function updateRowNumbers() {
+            const tableBody = document.getElementById('table-body');
+            const rows = tableBody.getElementsByTagName('tr');
+            
+            for (let i = 0; i < rows.length; i++) {
+                const orderInput = rows[i].getElementsByTagName('input')[0];
+                orderInput.value = i + 1;
+            }
+        }
+        
+        window.clearTable = function() {
+            const tableBody = document.getElementById('table-body');
+            tableBody.innerHTML = '';
+            
+            // Add one default row
+            window.addRow();
+            
+            // Reset workflow name
+            document.getElementById('workflow-name').value = 'My Process Workflow';
+            currentWorkflowName = 'My Process Workflow';
+            
+            // Clear diagram
+            visualizer.svg.selectAll('*').remove();
+            visualizer.svg.append('text')
+                .attr('x', 600)
+                .attr('y', 300)
+                .attr('text-anchor', 'middle')
+                .style('font-size', '16px')
+                .style('fill', '#666')
+                .text('Diagram cleared. Add process steps and click "Generate Diagram" to create a new visualization.');
+        };
+        
+        window.generateFromTable = function() {
+            const tableBody = document.getElementById('table-body');
+            const rows = tableBody.getElementsByTagName('tr');
+            const data = [];
+            
+            // Update workflow name
+            currentWorkflowName = document.getElementById('workflow-name').value || 'Untitled Workflow';
+            
+            // Collect data from table
+            for (let i = 0; i < rows.length; i++) {
+                const inputs = rows[i].getElementsByTagName('input');
+                const order = parseInt(inputs[0].value) || 0;
+                const swimLane = inputs[1].value.trim();
+                const stepName = inputs[2].value.trim();
+                const description = inputs[3].value.trim();
+                
+                if (order > 0 && stepName) {
+                    data.push({
+                        order: order,
+                        swimLane: swimLane || 'Default',
+                        stepName: stepName,
+                        description: description
+                    });
+                }
+            }
+            
+            if (data.length === 0) {
+                alert('Please add at least one process step with a name.');
+                return;
+            }
+            
+            visualizer.createDiagram(data);
+        };
+        
+        // File handling functions
+        function handleFileUpload(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const data = new Uint8Array(e.target.result);
+                    const workbook = XLSX.read(data, {type: 'array'});
+                    const worksheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const jsonData = XLSX.utils.sheet_to_json(worksheet, {header: 1});
+                    
+                    // Check if file has workflow name
+                    let startRow = 1;
+                    if (jsonData.length > 0 && jsonData[0][0] === 'Workflow Name:') {
+                        document.getElementById('workflow-name').value = jsonData[0][1] || 'Imported Workflow';
+                        currentWorkflowName = jsonData[0][1] || 'Imported Workflow';
+                        startRow = 4; // Skip header rows
+                    }
+                    
+                    // Convert to expected format
+                    const processData = jsonData.slice(startRow).map(row => ({
+                        order: row[0],
+                        swimLane: row[1],
+                        stepName: row[2],
+                        description: row[3]
+                    })).filter(item => item.order && item.stepName);
+                    
+                    if (processData.length === 0) {
+                        alert('No valid data found in the Excel file. Please check the format.');
+                        return;
+                    }
+                    
+                    // Update table with data
+                    const tableBody = document.getElementById('table-body');
+                    tableBody.innerHTML = '';
+                    
+                    processData.forEach(function(item) {
+                        const newRow = tableBody.insertRow();
+                        const cell1 = newRow.insertCell(0);
+                        const cell2 = newRow.insertCell(1);
+                        const cell3 = newRow.insertCell(2);
+                        const cell4 = newRow.insertCell(3);
+                        const cell5 = newRow.insertCell(4);
+                        
+                        cell1.innerHTML = '<input type="number" value="' + item.order + '">';
+                        cell2.innerHTML = '<input type="text" value="' + (item.swimLane || '') + '">';
+                        cell3.innerHTML = '<input type="text" value="' + (item.stepName || '') + '">';
+                        cell4.innerHTML = '<input type="text" value="' + (item.description || '') + '">';
+                        cell5.innerHTML = '<button type="button" onclick="removeRow(this)">Remove</button>';
+                    });
+                    
+                    visualizer.createDiagram(processData);
+                } catch (error) {
+                    alert('Error reading Excel file: ' + error.message);
+                }
+            };
+            reader.readAsArrayBuffer(file);
+            
+            // Reset file input
+            this.value = '';
+        }
+        
+        // Download functions
+        window.downloadAsExcel = function() {
+            const tableBody = document.getElementById('table-body');
+            const rows = tableBody.getElementsByTagName('tr');
+            const data = [];
+            
+            // Get workflow name
+            const workflowName = document.getElementById('workflow-name').value || 'Untitled Workflow';
+            
+            // Add header row with workflow name
+            data.push(['Workflow Name:', workflowName]);
+            data.push(['Created:', new Date().toLocaleDateString()]);
+            data.push([]); // Empty row
+            data.push(['Order', 'Swim Lane', 'Step Name', 'Description']);
+            
+            // Add data rows
+            for (let i = 0; i < rows.length; i++) {
+                const inputs = rows[i].getElementsByTagName('input');
+                const order = parseInt(inputs[0].value) || 0;
+                const swimLane = inputs[1].value.trim();
+                const stepName = inputs[2].value.trim();
+                const description = inputs[3].value.trim();
+                
+                if (order > 0 || swimLane || stepName || description) {
+                    data.push([order, swimLane, stepName, description]);
+                }
+            }
+            
+            if (data.length <= 4) {
+                alert('No data to export.');
+                return;
+            }
+            
+            // Create Excel file
+            const wb = XLSX.utils.book_new();
+            const ws = XLSX.utils.aoa_to_sheet(data);
+            
+            ws['!cols'] = [
+                { width: 15 },  // Order/Labels
+                { width: 20 },  // Swim Lane
+                { width: 30 },  // Step Name
+                { width: 40 }   // Description
+            ];
+            
+            XLSX.utils.book_append_sheet(wb, ws, 'Process Data');
+            
+            // Generate filename
+            const timestamp = new Date().toISOString().slice(0, 10);
+            const safeWorkflowName = workflowName.replace(/[^a-zA-Z0-9]/g, '_');
+            const filename = safeWorkflowName + '_' + timestamp + '.xlsx';
+            
+            // Download
+            XLSX.writeFile(wb, filename);
+        };
+        
+        // PDF Download Function - Uses html2canvas and jsPDF
+
+window.downloadAsPDF = function() {
+    const svg = document.querySelector('#process-diagram svg');
+    if (!svg) {
+        alert('No diagram to export. Please generate a diagram first.');
+        return;
+    }
+    
+    // Get workflow name
+    const workflowName = document.getElementById('workflow-name').value || 'Untitled Workflow';
+    
+    // Get the viewBox dimensions from the SVG
+    const viewBox = svg.getAttribute('viewBox').split(' ').map(Number);
+    const svgWidth = viewBox[2];
+    const svgHeight = viewBox[3];
+    
+    // Create a temporary container with white background to hold the SVG
+    const container = document.createElement('div');
+    container.style.position = 'absolute';
+    container.style.left = '-9999px';
+    container.style.background = 'white';
+    container.style.width = svgWidth + 'px';
+    container.style.height = svgHeight + 'px';
+    container.style.padding = '20px';
+    
+    // Copy the SVG
+    const svgClone = svg.cloneNode(true);
+    svgClone.setAttribute('width', svgWidth);
+    svgClone.setAttribute('height', svgHeight);
+    container.appendChild(svgClone);
+    
+    // Add to document for rendering
+    document.body.appendChild(container);
+    
+    // Use html2canvas with a higher scale to capture the container as a high-quality image
+    html2canvas(container, {
+        scale: 2, // Increase scale for better resolution (adjust as needed)
+        useCORS: true,
+        backgroundColor: '#ffffff'
+    }).then(function(canvas) {
+        // Remove the temporary container
+        document.body.removeChild(container);
+        
+        // Create PDF with jsPDF
+        const { jsPDF } = window.jspdf;
+        const pdf = new jsPDF({
+            orientation: svgWidth > svgHeight ? 'landscape' : 'portrait',
+            unit: 'mm',
+            format: 'a4'
+        });
+        
+        // Add the captured image to PDF
+        const imgData = canvas.toDataURL('image/png', 1.0); // High quality PNG
+        const pdfWidth = pdf.internal.pageSize.getWidth();
+        const pdfHeight = pdf.internal.pageSize.getHeight();
+        const imgWidth = canvas.width;
+        const imgHeight = canvas.height;
+        const ratio = Math.min(pdfWidth / imgWidth, pdfHeight / imgHeight) * 0.9;
+        
+        pdf.addImage(
+            imgData, 'PNG',
+            (pdfWidth - imgWidth * ratio) / 2, // center horizontally
+            10, // top margin
+            imgWidth * ratio, imgHeight * ratio
+        );
+        
+        // Generate filename
+        const timestamp = new Date().toISOString().slice(0, 10);
+        const safeWorkflowName = workflowName.replace(/[^a-zA-Z0-9]/g, '_');
+        const filename = safeWorkflowName + '_diagram_' + timestamp + '.pdf';
+        
+        // Download PDF
+        pdf.save(filename);
+    }).catch(function(error) {
+        alert('Error exporting to PDF: ' + error.message);
+        document.body.removeChild(container);
+    });
+};
+
+
+
+
+               
+        // Export functions to global scope for button click handlers
+        window.visualizer = visualizer;
+    })();
+    </script>
+</body>
+</html>
