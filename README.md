@@ -2,6 +2,9 @@
 
 Interactive web-based process flow visualizer with swim lane diagrams. Upload Excel data or enter manually, export to PDF/Excel. Built with D3.js and vanilla JavaScript.
 
+🖼️ Screenshot
+![Process Visualizer Screenshot](screenshot.png)
+
 A lightweight, interactive, browser-based tool for visualizing process workflows using swimlanes and process steps. This visualizer supports manual data entry or Excel import, and allows exporting the diagram as both Excel and PDF.
 
 ## 🚀 Features
