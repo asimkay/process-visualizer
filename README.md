@@ -12,12 +12,12 @@
 
 ---
 
-🖼️ Screenshot V4
+🖼️ Screenshot
 ![Process Visualizer Screenshot](screenshotv5.png)
 
 ---
 
-🖼️ Screenshot V5
+🖼️ Screenshot
 ![Process Visualizer Screenshot](screenshot.png)
 
 ---
