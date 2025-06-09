@@ -168,7 +168,6 @@ MIT License. Free for personal and commercial use.
 
 ## 🔗 **Quick Links**
 
-- **🚀 Live Demo**: [Try Process Visualizer v5](https://asimkay.github.io/process-visualizer/process-visualizer-v5.html)
 - **🤖 Get Free AI Key**: [OpenRouter API Keys](https://openrouter.ai/keys)
 - **📋 Report Issues**: [GitHub Issues](https://github.com/asimkay/process-visualizer/issues)
 - **📖 Documentation**: [View on GitHub](https://github.com/asimkay/process-visualizer)
