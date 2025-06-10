@@ -35,7 +35,7 @@ A lightweight, interactive, browser-based tool for visualizing process workflows
 📤 **Export options** - Download process data as Excel or diagram as PDF  
 🎨 **Dynamic rendering** with smart text wrapping and connectors  
 🛠️ **Editable workflow name** and real-time updates  
-🆓 **FREE unlimited AI usage** with OpenRouter free models  
+🆓 **FREE AI usage** with OpenRouter free models  
 📱 **Responsive design** - Works on desktop and mobile  
 🔒 **No registration required** for basic features  
 
